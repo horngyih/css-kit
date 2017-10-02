@@ -1,9 +1,11 @@
+
 var fs = require( 'fs' );
 var path = require('path');
 var readLine = require( 'readline' );
 
-var css = require('css');
-var cssTokenizer = require('./css-tokenizer');
+var cssKit = require("./css-kit-core");
+
+var utils = require('./utils');
 
 var args = process.argv.slice(2);
 
@@ -20,13 +22,8 @@ if( args.length === 1 ){
 if( targetFile ){
     console.log( "/* Tokenizing : ", targetFile, " */" );
     fs.readFile(targetFile, function(err, data){
-        var ast = css.parse( data.toString() );
-        console.log( "/* Source Rules : ", ast.stylesheet.rules.length, " */" );
-        var mappedRules = ast.stylesheet.rules.map(mapRule).sort(compareSelector);
-        console.log( "/* Mapped Rules : ", mappedRules.length, " */" );
-        var stringifiedRules = mappedRules.map(stringifyRule);
-        console.log( "/* Output Rules : ", stringifiedRules.length, " */\n" );        
-        stringifiedRules.forEach(function(rule){ console.log(rule)});
+        var orderedCSSRules = cssKit.parseAndOrder(data.toString());
+        console.log( orderedCSSRules.map(cssKit.stringifyRuleObject).filter(function(rule){return rule}).join("\n"));
     });
 } else {
     console.log( "Usage : css-parser [options] <source-file>" );
@@ -67,8 +64,9 @@ function stringifyRule(rule){
     if( rule ){
         var ruleString = '';
         ruleString += stringifySelector(rule.selector);
-        ruleString += "{\n";
-        ruleString += rule.declarations.join( ";\n" );
+        ruleString += "{\n    ";
+        ruleString += rule.declarations.sort().join( ";\n    " );
+        ruleString += ";";
         ruleString += "\n";
         ruleString += "}\n";
         return ruleString;
@@ -80,6 +78,32 @@ function stringifySelector(selector){
         var selectors = selector.split(",");
         return selectors.join( ",\n");
     }
+}
+
+function collateSelectors(map, rule){
+    map = map || {};
+    if( rule ){
+        var ruleMap = mapSelectors(rule.selector, map);
+        if(ruleMap){
+            map = Object.assign(map,ruleMap);
+        }
+    }
+    return map;
+}
+
+function mapSelectors(ruleSelector, map){
+    var ruleMap = {};
+    if( ruleSelector ){
+        var tokens = ruleSelector.split(",")
+        .map(function(token){return token.split(" ")})
+        .reduce(utils.flatten,[])
+        // .map(function(token){return token.split(":")[0]})
+        .filter(function(token){return /\./.exec(token) || /#/.exec(token) })
+        .map(function(token){return token.substring(token.indexOf("."))})
+        .map(function(token){return token.substring(token.indexOf("#"))});
+        ruleMap =  tokens.reduce(utils.countEntities,ruleMap);
+    }
+    return ruleMap;
 }
 
 function mapRule( rule ){
